@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Ocean Visualization</title>
+<link rel="stylesheet" href="/css/app.css">
+<link rel="icon" href="data:;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==">
+</head>
+<body>
+<div id="controls">
+<button id="tempBtn">수온 보기</button>
+<button id="salBtn">염분 보기</button>
+<button id="currentBtn">유속 보기</button>
+<button id="axisBtn">축 숨기기</button>
+<button id="resetBtn">초기화</button>
+</div>
+<div id="currentDepthControls" class="hidden">
+<div id="currentDepthLabel">유속 수심: 로딩 중...</div>
+<input id="depthSlider" type="range" min="0" max="0" value="0" step="1">
+</div>
+<div id="axisLegend">X: 경도(lon) / Y: 수심(depth) / Z: 위도(lat)</div>
+<div id="tempLegend" class="hidden">
+<div id="tempLegendHeader">
+<div id="tempLegendTitle">수온 범례 (°C)</div>
+<button id="legendResetBtn">전체보기</button>
+</div>
+<div id="tempLegendSteps"></div>
+</div>
+<div id="currentLegend" class="hidden">
+<div id="currentLegendHeader">
+<div id="currentLegendTitle">유속 범례 (m/s)</div>
+<button id="currentLegendResetBtn">전체보기</button>
+</div>
+<div id="currentLegendSteps"></div>
+</div>
+<div id="miniMapContainer"></div>
+<div id="three-container">
+</div>
+
+<!-- 커스텀 JS -->
+<script type="module" src="/js/app.js"></script>
+
+</body>
+</html>

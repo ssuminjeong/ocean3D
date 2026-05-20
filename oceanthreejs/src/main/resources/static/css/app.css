@@ -1,0 +1,186 @@
+@charset "UTF-8";
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* 스크롤 없애기 */
+}
+
+#three-container {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+#controls {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 10;
+    display: flex;
+    gap: 8px;
+}
+
+#controls button {
+    border: 1px solid #4f5b66;
+    background: #121821;
+    color: #e8edf2;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+#axisLegend {
+    position: fixed;
+    top: 54px;
+    left: 12px;
+    z-index: 10;
+    color: #c6d1dc;
+    background: rgba(12, 18, 24, 0.85);
+    border: 1px solid #334150;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+}
+
+#currentDepthControls {
+    position: fixed;
+    top: 90px;
+    left: 12px;
+    z-index: 10;
+    width: 220px;
+    color: #d7e2ec;
+    background: rgba(12, 18, 24, 0.92);
+    border: 1px solid #334150;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 12px;
+}
+
+#currentDepthLabel {
+    margin-bottom: 6px;
+    color: #9fb3c5;
+    font-weight: 600;
+}
+
+#depthSlider {
+    width: 100%;
+}
+
+#tempLegend {
+    position: fixed;
+    top: 90px;
+    left: 12px;
+    z-index: 10;
+    width: 176px;
+    color: #d7e2ec;
+    background: rgba(12, 18, 24, 0.92);
+    border: 1px solid #334150;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 12px;
+}
+#currentLegend {
+    position: fixed;
+    top: 176px;
+    left: 12px;
+    z-index: 10;
+    width: 176px;
+    color: #d7e2ec;
+    background: rgba(12, 18, 24, 0.92);
+    border: 1px solid #334150;
+    border-radius: 6px;
+    padding: 6px;
+    font-size: 12px;
+}
+
+#currentLegendHeader {
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+#currentLegendTitle {
+    font-weight: 600;
+    font-size: 11px;
+    color: #9fb3c5;
+}
+
+#tempLegendHeader {
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+}
+
+#tempLegendTitle {
+    font-weight: 600;
+    font-size: 11px;
+    color: #9fb3c5;
+}
+
+#legendResetBtn,
+#currentLegendResetBtn {
+    border: 1px solid #4f5b66;
+    background: #121821;
+    color: #d7e2ec;
+    font-size: 10px;
+    line-height: 1;
+    padding: 3px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.temp-legend-row {
+    margin: 0;
+}
+
+.temp-legend-chip {
+    width: 100%;
+    height: 34px;
+    border-radius: 0;
+    position: relative;
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+    cursor: pointer;
+    transition: filter 120ms ease, outline-color 120ms ease;
+}
+
+.temp-legend-chip-label {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    color: rgba(255, 255, 255, 0.9);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    white-space: nowrap;
+}
+
+.hidden {
+    display: none;
+}
+
+.temp-legend-chip.selected {
+    outline: 2px solid rgba(255, 255, 255, 0.92);
+    outline-offset: -2px;
+    filter: saturate(1.2) brightness(1.05);
+}
+
+#miniMapContainer {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    width: 220px;
+    height: 220px;
+    z-index: 10;
+    border: 1px solid #334150;
+    border-radius: 8px;
+    background: rgba(8, 12, 16, 0.88);
+    overflow: hidden;
+}
