@@ -1,0 +1,124 @@
+INFO:     Started server process [67324]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:5002 (Press CTRL+C to quit)
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:57992 - "GET /api/ocean_meta HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+해안선 세그먼트: 6836 lines
+INFO:     127.0.0.1:57992 - "GET /api/coastline_3d HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[StackPayload] stride=(1,1) depth_unit=2.0m depth_fill_layers=106 points=1136184
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57992 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57992 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[StackPayload] stride=(1,1) depth_unit=2.0m depth_fill_layers=106 points=1751448
+[Ocean3D] type=temp time=0 depth=0 stride=4 depth_max=200.0 payload_points=1751448 bytes=49040552
+INFO:     127.0.0.1:57995 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57995 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:57998 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:57998 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[StackPayload] stride=(1,1) depth_unit=2.0m depth_fill_layers=106 points=1136184
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57998 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57998 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:57999 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58287 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58287 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58573 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58573 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+[Ocean3D] type=temp time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58583 - "GET /api/ocean_3d?type=temp&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58573 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=3 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=4 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58573 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+INFO:     127.0.0.1:58681 - "GET /api/current_vectors?time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58719 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK
+WARNING:  Unsupported upgrade request.
+WARNING:  No supported WebSocket library detected. Please use "pip install 'uvicorn[standard]'", or install 'websockets' or 'wsproto' manually.
+[Ocean3D] type=salt time=0 depth=0 stride=5 depth_max=200.0 payload_points=1136184 bytes=31813160
+INFO:     127.0.0.1:58719 - "GET /api/ocean_3d?type=salt&time_idx=0&depth_idx=0&stride=5 HTTP/1.1" 200 OK

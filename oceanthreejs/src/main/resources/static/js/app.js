@@ -17,8 +17,8 @@ camera.position.set(33.99486841881377, 94.14073978004035, 122.01132962984578);
 
 const FIXED_VIEW = {
     enabled: true,
-    camera: { x: 33.99486841881377, y: 94.14073978004035, z: 122.01132962984578 },
-    target: { x: 0.8854043308959644, y: -19.413457958080834, z: 29.871459892240747 },
+    camera: { x: 75.019, y: 24.719, z: 103.819 },
+    target: { x: 5.482, y: -23.064, z: 4.805 },
     fov: 60,
     near: 1.0,
     far: 50000.0
@@ -45,8 +45,8 @@ let pickPointRecords = [];
 
 const probeOverlayEl = document.createElement('div');
 probeOverlayEl.style.position = 'fixed';
-probeOverlayEl.style.right = '16px';
-probeOverlayEl.style.bottom = '16px';
+probeOverlayEl.style.left = '12px';
+probeOverlayEl.style.top = '360px';
 probeOverlayEl.style.zIndex = '9999';
 probeOverlayEl.style.minWidth = '270px';
 probeOverlayEl.style.maxWidth = '380px';
@@ -60,6 +60,7 @@ probeOverlayEl.style.pointerEvents = 'none';
 probeOverlayEl.style.display = 'none';
 document.body.appendChild(probeOverlayEl);
 
+
 const miniMapContainer = document.getElementById('miniMapContainer');
 const miniMapRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 miniMapRenderer.setPixelRatio(window.devicePixelRatio || 1);
@@ -68,14 +69,14 @@ miniMapRenderer.setSize(miniMapContainer.clientWidth, miniMapContainer.clientHei
 miniMapContainer.appendChild(miniMapRenderer.domElement);
 const miniMapScene = new THREE.Scene();
 const miniMapCamera = new THREE.PerspectiveCamera(45, miniMapContainer.clientWidth / miniMapContainer.clientHeight, 0.1, 500);
-miniMapCamera.position.set(0, -2, 70);
+miniMapCamera.position.set(-40.952, 36.368, -43.638);
 miniMapCamera.lookAt(0, 0, 0);
+const MINI_MAP_CONTROL_MIN_DISTANCE = 20;
+const MINI_MAP_CONTROL_MAX_DISTANCE = 180;
 const miniMapRoot = new THREE.Group();
 miniMapScene.add(miniMapRoot);
 let miniMapRegionOutline = null;
 const miniMapRadius = 22;
-const miniMapLonCenter = (LON_MIN + LON_MAX) * 0.5;
-const miniMapLatCenter = (LAT_MIN + LAT_MAX) * 0.5;
 const miniMapAmbient = new THREE.AmbientLight(0xffffff, 0.9);
 miniMapScene.add(miniMapAmbient);
 const miniMapDirLight = new THREE.DirectionalLight(0xffffff, 0.9);
@@ -89,8 +90,8 @@ miniMapRoot.add(globe);
 const miniMapControls = new OrbitControls(miniMapCamera, miniMapRenderer.domElement);
 miniMapControls.enableDamping = true;
 miniMapControls.enablePan = false;
-miniMapControls.minDistance = 36;
-miniMapControls.maxDistance = 110;
+miniMapControls.minDistance = MINI_MAP_CONTROL_MIN_DISTANCE;
+miniMapControls.maxDistance = MINI_MAP_CONTROL_MAX_DISTANCE;
 miniMapControls.target.set(0, 0, 0);
 miniMapControls.update();
 const globeTextureLoader = new THREE.TextureLoader();
@@ -103,7 +104,7 @@ function buildBrightEarthTexture(sourceTexture) {
 }
 
 globeTextureLoader.load(
-    '/textures/earth.jpg',
+    '/textures/earth_world_borders_geo_hsi.png',
     (texture) => {
         globe.material.map = buildBrightEarthTexture(texture);
         globe.material.needsUpdate = true;
@@ -160,6 +161,12 @@ let currentType = 'temp';
 let currentMode = 'temp';
 let depthValues = [];
 let currentDepthIdx = 0;
+let maxDepthSliderIdx = 0;
+const depthIdxByMode = {
+    temp: 0,
+    salt: 0,
+    current: 0
+};
 let currentTimeIdx = 0;
 let fixedAxisBounds = null;
 let selectedCurrentStepIndexes = new Set();
@@ -188,6 +195,8 @@ const CUBE_STRIDE_LEVELS = [
     { maxDistance: 85, stride: 2 }
 ];
 const DETAIL_Z_OFFSET = 0.015;
+const SLIDER_DEBOUNCE_MS = 120;
+let depthSliderDebounceTimer = null;
 
 const CURRENT_VECTOR_STRIDE_LEVELS = [
     { maxDistance: 50, stride: 2 },
@@ -303,7 +312,7 @@ function fitCameraToPointGroup() {
     const fov = camera.fov * (Math.PI / 180);
     const fitHeightDistance = maxDim / (2 * Math.tan(fov / 2));
     const fitWidthDistance = fitHeightDistance / camera.aspect;
-    const distance = 1.25 * Math.max(fitHeightDistance, fitWidthDistance);
+    const distance = 1.70 * Math.max(fitHeightDistance, fitWidthDistance);
 
     const dir = new THREE.Vector3(1, 0.75, 1).normalize();
     camera.position.copy(center).add(dir.multiplyScalar(distance));
@@ -317,6 +326,10 @@ function fitCameraToPointGroup() {
 }
 
 function resetToInitialTempView() {
+    if (!FIXED_VIEW.enabled) {
+        fitCameraToPointGroup();
+        return;
+    }
     camera.position.set(FIXED_VIEW.camera.x, FIXED_VIEW.camera.y, FIXED_VIEW.camera.z);
     controls.target.set(FIXED_VIEW.target.x, FIXED_VIEW.target.y, FIXED_VIEW.target.z);
     camera.fov = FIXED_VIEW.fov;
@@ -431,9 +444,10 @@ function updateCornerAxes(minX, maxX, minY, maxY, minZ, maxZ) {
 
     axisGroup.position.set(maxX, 0, maxZ);
 
-    const axisExtend = 1.08;
+    const axisExtend = 1.00;
     const lonLen = Math.max(1, (maxX - minX) * axisExtend);
-    const depthLen = Math.max(1, (-minY) * axisExtend);
+    // Keep depth axis length exact to data depth range so 200m tick aligns with 200m layer.
+    const depthLen = Math.max(1, (-minY));
     const latLen = Math.max(1, (maxZ - minZ) * axisExtend);
 
     const origin = new THREE.Vector3(0, 0, 0);
@@ -476,9 +490,26 @@ function updateCornerAxes(minX, maxX, minY, maxY, minZ, maxZ) {
 
 function applyFixedOrCurrentAxes(minX, maxX, minY, maxY, minZ, maxZ) {
     if (!fixedAxisBounds) {
-        fixedAxisBounds = { minX, maxX, minY, maxY, minZ, maxZ };
+        fixedAxisBounds = {
+            minX,
+            maxX,
+            minY,
+            maxY: Math.max(maxY, 0.0),
+            minZ,
+            maxZ
+        };
+    } else {
+        fixedAxisBounds.minY = Math.min(fixedAxisBounds.minY, minY);
+        fixedAxisBounds.maxY = Math.max(fixedAxisBounds.maxY, 0.0);
     }
-    const b = fixedAxisBounds || { minX, maxX, minY, maxY, minZ, maxZ };
+    const b = fixedAxisBounds || {
+        minX,
+        maxX,
+        minY,
+        maxY: Math.max(maxY, 0.0),
+        minZ,
+        maxZ
+    };
     updateCornerAxes(b.minX, b.maxX, b.minY, b.maxY, b.minZ, b.maxZ);
 }
 
@@ -723,15 +754,20 @@ function resolveLegendBin(value, minV, maxV) {
 function updateCubeInstancesVisibility(mesh) {
     const positions = mesh.userData.instancePositions;
     const binIndexes = mesh.userData.binIndexes;
+    const depthIndexes = mesh.userData.depthIndexes;
     const visibleAttr = mesh.userData.instanceVisibleAttr;
     const hasSelection = selectedBinIndexes.size > 0;
+    const hasDepthSlice = currentMode === 'temp' || currentMode === 'salt';
+    const selectedDepthIdx = hasDepthSlice ? Number(depthIdxByMode[currentMode]) : null;
+    const showAllDepths = hasDepthSlice && selectedDepthIdx === 0;
     let visibleCount = 0;
 
     for (let i = 0; i < binIndexes.length; i++) {
         const x = positions[i * 3];
         const selected = !hasSelection || selectedBinIndexes.has(binIndexes[i]);
+        const depthMatched = showAllDepths || !hasDepthSlice || !depthIndexes || depthIndexes[i] === selectedDepthIdx;
         const unclipped = x <= currentClipX;
-        const visible = selected && unclipped;
+        const visible = selected && unclipped && depthMatched;
         if (visible) visibleCount += 1;
         visibleAttr.setX(i, visible ? 1.0 : 0.0);
     }
@@ -869,23 +905,20 @@ function updateMiniMapRegionOutline() {
     pushEdge(LON_MAX, LAT_MAX, LON_MIN, LAT_MAX);
     pushEdge(LON_MIN, LAT_MAX, LON_MIN, LAT_MIN);
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const material = new THREE.LineBasicMaterial({
-        color: 0xff3b30,
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    const material = new LineMaterial({
+        color: 0xff0000,
         transparent: true,
         opacity: 1.0,
         depthTest: true,
-        depthWrite: true
+        depthWrite: true,
+        linewidth: 2
     });
-    miniMapRegionOutline = new THREE.LineSegments(geometry, material);
+    material.resolution.set(miniMapContainer.clientWidth, miniMapContainer.clientHeight);
+    miniMapRegionOutline = new LineSegments2(geometry, material);
+    miniMapRegionOutline.computeLineDistances();
     miniMapRoot.add(miniMapRegionOutline);
-
-    const centerDir = lonLatToSphere(miniMapLonCenter, miniMapLatCenter, 1).normalize();
-    miniMapRoot.quaternion.setFromUnitVectors(centerDir, new THREE.Vector3(0, 0, 1));
-    const northAfterAlign = new THREE.Vector3(0, 1, 0).applyQuaternion(miniMapRoot.quaternion);
-    const roll = Math.atan2(northAfterAlign.x, northAfterAlign.y);
-    miniMapRoot.rotateZ(-roll);
 }
 
 function clearCurrentVectorScene() {
@@ -919,6 +952,11 @@ function hideCurrentControls() {
 function showCurrentControls() {
     currentDepthControlsEl.classList.remove('hidden');
     currentLegendEl.classList.remove('hidden');
+}
+
+function showDepthControlsOnly() {
+    currentDepthControlsEl.classList.remove('hidden');
+    currentLegendEl.classList.add('hidden');
 }
 
 function applyCurrentLegendSelectionStyles() {
@@ -1101,19 +1139,36 @@ async function ensureOceanMeta() {
     if (!res.ok) throw new Error(`meta request failed: ${res.status}`);
     const meta = await res.json();
     depthValues = Array.isArray(meta.depth_values) ? meta.depth_values : [];
-    const maxIdx = Math.max(0, depthValues.length - 1);
+    const maxIdxFromDepth = depthValues.reduce((acc, value, idx) => {
+        if (Number.isFinite(value) && value <= MAX_DISPLAY_DEPTH_M) return idx;
+        return acc;
+    }, -1);
+    maxDepthSliderIdx = Math.max(0, maxIdxFromDepth >= 0 ? maxIdxFromDepth : (depthValues.length - 1));
+    const maxIdx = maxDepthSliderIdx;
     depthSliderEl.min = '0';
     depthSliderEl.max = String(maxIdx);
     depthSliderEl.step = '1';
-    depthSliderEl.value = String(Math.min(currentDepthIdx, maxIdx));
+    if (currentMode === 'temp' || currentMode === 'salt' || currentMode === 'current') {
+        const modeDepthIdx = Number(depthIdxByMode[currentMode]);
+        const safeDepthIdx = Number.isFinite(modeDepthIdx) ? Math.max(0, Math.min(modeDepthIdx, maxIdx)) : 0;
+        depthSliderEl.value = String(safeDepthIdx);
+    } else {
+        depthSliderEl.value = '0';
+    }
 }
 
 function updateDepthLabel() {
-    const depthValue = depthValues[currentDepthIdx];
+    const depthIdx = (currentMode === 'temp' || currentMode === 'salt' || currentMode === 'current')
+        ? depthIdxByMode[currentMode]
+        : 0;
+    const labelPrefix = currentMode === 'current'
+        ? '유속 수심'
+        : (currentMode === 'salt' ? '염분 수심' : '수온 수심');
+    const depthValue = depthValues[depthIdx];
     if (Number.isFinite(depthValue)) {
-        currentDepthLabelEl.textContent = `유속 수심: ${depthValue.toFixed(1)} m (index ${currentDepthIdx})`;
+        currentDepthLabelEl.textContent = `${labelPrefix}: ${depthValue.toFixed(1)} m (index ${depthIdx})`;
     } else {
-        currentDepthLabelEl.textContent = `유속 수심 index: ${currentDepthIdx}`;
+        currentDepthLabelEl.textContent = `${labelPrefix} index: ${depthIdx}`;
     }
 }
 
@@ -1130,8 +1185,10 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         await loadCoastlineOverlay();
         await ensureOceanMeta();
 
-        currentDepthIdx = Math.max(0, Math.min(depthIdx, Math.max(0, depthValues.length - 1)));
+        currentDepthIdx = Math.max(0, Math.min(depthIdx, maxDepthSliderIdx));
+        depthIdxByMode.current = currentDepthIdx;
         depthSliderEl.value = String(currentDepthIdx);
+        currentMode = 'current';
         updateDepthLabel();
         currentVectorStride = stride;
 
@@ -1150,7 +1207,6 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         clearDetailLayer();
         tempLegendEl.classList.add('hidden');
         showCurrentControls();
-        currentMode = 'current';
 
         const buffer = await res.arrayBuffer();
         const header = new Float32Array(buffer, 0, 4);
@@ -1490,7 +1546,15 @@ async function refreshDetailLayerByZoom(force = false) {
                 }
             }
             const depthMeter = Number.isFinite(depthValues[depthIdx]) ? depthValues[depthIdx] : approxDepthMeter;
-            detailPickPointRecords[i] = { lon: geo.lon, lat: geo.lat, depthIdx, depthMeter, value: v };
+            detailPickPointRecords[i] = {
+                lon,
+                lat,
+                depthIdx,
+                depthMeter,
+                value: v,
+                x,
+                binIndex: bin
+            };
         }
 
         clearDetailLayer();
@@ -1551,7 +1615,7 @@ function buildProbeInfo(mesh, instanceId) {
         }
     }
     const depthMeter = Number.isFinite(depthValues[depthIdx]) ? depthValues[depthIdx] : approxDepthMeter;
-    const valueLabel = currentMode === 'salt' ? 'salinity(psu)' : 'temp(degC)';
+    const valueLabel = currentMode === 'salt' ? '염분(psu)' : '수온(°C)';
 
     return {
         valueLabel,
@@ -1565,7 +1629,7 @@ function buildProbeInfo(mesh, instanceId) {
 
 function buildProbeInfoFromRecord(record) {
     if (!record) return null;
-    const valueLabel = currentMode === 'salt' ? 'salinity(psu)' : 'temp(degC)';
+    const valueLabel = currentMode === 'salt' ? '염분(psu)' : '수온(°C)';
     return {
         valueLabel,
         value: record.value,
@@ -1576,24 +1640,64 @@ function buildProbeInfoFromRecord(record) {
     };
 }
 
+function isRecordVisibleForHover(record) {
+    if (!record) return false;
+    if (Number.isFinite(record.x) && record.x > currentClipX) return false;
+    if (currentMode === 'temp' || currentMode === 'salt') {
+        const selectedDepthIdx = Number(depthIdxByMode[currentMode] ?? 0);
+        const showAllDepths = selectedDepthIdx === 0;
+        if (!showAllDepths && Number(record.depthIdx) !== selectedDepthIdx) return false;
+        if (selectedBinIndexes.size > 0 && !selectedBinIndexes.has(Number(record.binIndex))) return false;
+    }
+    return true;
+}
+
+function placeProbeOverlayBelowLegend() {
+    const anchor = (currentMode === 'current' && !currentLegendEl.classList.contains('hidden'))
+        ? currentLegendEl
+        : tempLegendEl;
+    const fallbackTop = 360;
+    const rect = anchor?.getBoundingClientRect?.();
+    const left = 12;
+    const top = rect ? Math.round(rect.bottom + 8) : fallbackTop;
+    probeOverlayEl.style.left = `${left}px`;
+    probeOverlayEl.style.top = `${top}px`;
+    probeOverlayEl.style.right = 'auto';
+    probeOverlayEl.style.bottom = 'auto';
+}
+
 function renderProbeInfo(info, pinned = false) {
     if (!info) {
         probeOverlayEl.style.display = 'none';
         return;
     }
     const depthLine = info.depthMeter == null
-        ? `depth_idx: ${info.depthIdx}`
-        : `depth: ${info.depthMeter.toFixed(2)} m (idx ${info.depthIdx})`;
+        ? `수심 인덱스: ${info.depthIdx}`
+        : `수심: ${info.depthMeter.toFixed(2)} m (idx ${info.depthIdx})`;
     const pinLine = '[HOVER]';
     probeOverlayEl.textContent = [
         pinLine,
         `mode: ${currentMode}`,
-        `lon: ${info.lon.toFixed(4)}`,
-        `lat: ${info.lat.toFixed(4)}`,
+        `경도: ${info.lon.toFixed(4)}`,
+        `위도: ${info.lat.toFixed(4)}`,
         depthLine,
         `${info.valueLabel}: ${Number(info.value).toFixed(4)}`
     ].join('\n');
+    placeProbeOverlayBelowLegend();
     probeOverlayEl.style.display = 'block';
+}
+
+function scheduleDepthLoadForCurrentMode(depthIdx) {
+    if (depthSliderDebounceTimer) clearTimeout(depthSliderDebounceTimer);
+    depthSliderDebounceTimer = setTimeout(() => {
+        if (currentMode === 'current') {
+            loadCurrentVectors(depthIdx).catch((err) => console.error(err));
+            return;
+        }
+        if (currentMode === 'temp' || currentMode === 'salt') {
+            loadPoints(currentMode, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, depthIdx).catch((err) => console.error(err));
+        }
+    }, SLIDER_DEBOUNCE_MS);
 }
 
 function pickCubeInstance(event) {
@@ -1609,11 +1713,13 @@ function pickCubeInstance(event) {
     for (const target of targets) {
         const hits = raycaster.intersectObject(target.points, false);
         if (!hits || hits.length === 0) continue;
-        const hit = hits[0];
-        if (!Number.isInteger(hit.index)) continue;
-        const record = target.records[hit.index];
-        if (!record) continue;
-        return { record };
+        for (const hit of hits) {
+            if (!Number.isInteger(hit.index)) continue;
+            const record = target.records[hit.index];
+            if (!record) continue;
+            if (!isRecordVisibleForHover(record)) continue;
+            return { record };
+        }
     }
     return null;
 }
@@ -1638,17 +1744,55 @@ function refreshCubesByZoomIfNeeded() {
     if (currentMode !== 'temp' && currentMode !== 'salt') return;
     const nextStride = getCubeStrideByZoom();
     if (nextStride === currentCubeStride) return;
-    loadPoints(currentMode, nextStride, true).catch((err) => console.error(err));
+    const modeDepthIdx = depthIdxByMode[currentMode] ?? 0;
+    loadPoints(currentMode, nextStride, true, MAX_DISPLAY_DEPTH_M, modeDepthIdx).catch((err) => console.error(err));
 }
 
-function logCameraDistance() {}
+function logMainCameraState(label = 'main') {
+    const pos = camera.position;
+    const target = controls.target;
+    const distance = pos.distanceTo(target);
+    const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+    const deg = 180 / Math.PI;
+    console.log(
+        `[Camera:${label}] ` +
+        `pos=(${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}) ` +
+        `target=(${target.x.toFixed(3)}, ${target.y.toFixed(3)}, ${target.z.toFixed(3)}) ` +
+        `distance=${distance.toFixed(3)} ` +
+        `rotDeg(y,p,r)=(${(euler.y * deg).toFixed(2)}, ${(euler.x * deg).toFixed(2)}, ${(euler.z * deg).toFixed(2)})`
+    );
+}
 
-async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView = false, depthMaxOverride = MAX_DISPLAY_DEPTH_M) {
+function logMiniMapState(label = 'mini') {
+    const pos = miniMapCamera.position;
+    const target = miniMapControls.target;
+    const distance = pos.distanceTo(target);
+    const azimuthDeg = miniMapControls.getAzimuthalAngle() * (180 / Math.PI);
+    const polarDeg = miniMapControls.getPolarAngle() * (180 / Math.PI);
+    console.log(
+        `[MiniMap:${label}] ` +
+        `pos=(${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}) ` +
+        `target=(${target.x.toFixed(3)}, ${target.y.toFixed(3)}, ${target.z.toFixed(3)}) ` +
+        `distance=${distance.toFixed(3)} ` +
+        `azimuth=${azimuthDeg.toFixed(2)}° polar=${polarDeg.toFixed(2)}°`
+    );
+}
+
+function logCameraDistance() {
+    logMainCameraState('end');
+}
+
+async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView = false, depthMaxOverride = MAX_DISPLAY_DEPTH_M, depthIdxOverride = null) {
     const strideArg = Number(strideOverride);
     const stride = Number.isFinite(strideArg) ? Math.max(1, Math.round(strideArg)) : BASE_CUBE_STRIDE;
     const safeDepthMax = Math.max(2, Math.min(Number(depthMaxOverride) || MAX_DISPLAY_DEPTH_M, MAX_DISPLAY_DEPTH_M));
+    const requestedDepthIdx = Number(depthIdxOverride);
+    const depthMaxIdx = Math.max(0, maxDepthSliderIdx);
+    const safeDepthIdx = Number.isFinite(requestedDepthIdx)
+        ? Math.max(0, Math.min(Math.round(requestedDepthIdx), depthMaxIdx))
+        : Math.max(0, Math.min(Number(depthIdxByMode[type]) || 0, depthMaxIdx));
     if (isCubeLoading) {
-        queuedCubeRequest = { type, stride, preserveView, depthMax: safeDepthMax };
+        queuedCubeRequest = { type, stride, preserveView, depthMax: safeDepthMax, depthIdx: safeDepthIdx };
         return;
     }
     isCubeLoading = true;
@@ -1658,14 +1802,17 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     await ensureOceanMeta();
     await loadCoastlineOverlay();
     clearCurrentVectorScene();
-    hideCurrentControls();
     currentMode = type;
     currentDataType = type;
+    depthIdxByMode[type] = safeDepthIdx;
     currentCubeStride = stride;
+    showDepthControlsOnly();
+    depthSliderEl.value = String(depthIdxByMode[type]);
+    updateDepthLabel();
     // Prevent partial chunk updates from flashing while buffers are being rewritten.
     pointGroup.visible = false;
 
-    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}`);
+    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}&depth_idx=${depthIdxByMode[type]}`);
     if (!res.ok) {
         const message = await res.text();
         throw new Error(message || `API request failed: ${res.status}`);
@@ -1740,7 +1887,9 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
                 lat,
                 depthIdx,
                 depthMeter,
-                value: rawData[rawIdx + 3]
+                value: rawData[rawIdx + 3],
+                x: px,
+                binIndex: resolveLegendBin(rawData[rawIdx + 3], minV, maxV)
             };
 
             if (positions[j * 3] < minX) minX = positions[j * 3];
@@ -1846,13 +1995,29 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
         slot.cubes.material.uniforms.maxVal.value = maxV;
 
         const binIndexes = new Uint8Array(currentChunkSize);
+        const depthIndexes = new Int32Array(currentChunkSize);
         for (let j = 0; j < currentChunkSize; j++) {
             const value = values[j];
             const binIndex = resolveLegendBin(value, minV, maxV);
             binIndexes[j] = binIndex;
+            const y = slot.offsetsArray[j * 3 + 1];
+            const approxDepthMeter = yToApproxDepth(y);
+            let nearestDepthIdx = 0;
+            if (depthValues.length > 0) {
+                let best = Number.POSITIVE_INFINITY;
+                for (let k = 0; k < depthValues.length; k++) {
+                    const diff = Math.abs(depthValues[k] - approxDepthMeter);
+                    if (diff < best) {
+                        best = diff;
+                        nearestDepthIdx = k;
+                    }
+                }
+            }
+            depthIndexes[j] = Math.max(0, Math.min(nearestDepthIdx, maxDepthSliderIdx));
         }
         slot.cubes.userData.instancePositions = slot.offsetsArray;
         slot.cubes.userData.binIndexes = binIndexes;
+        slot.cubes.userData.depthIndexes = depthIndexes;
         slot.cubes.userData.instanceVisibleAttr = slot.visibleAttr;
         slot.cubes.visible = true;
         slot.cubeEdges.visible = true;
@@ -1879,7 +2044,7 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     if (safeDepthMax < MAX_DISPLAY_DEPTH_M && !hasLoadedFullDepth && (type === 'temp' || type === 'salt')) {
         hasLoadedFullDepth = true;
         setTimeout(() => {
-            loadPoints(type, currentCubeStride, true, MAX_DISPLAY_DEPTH_M).catch((err) => console.error(err));
+            loadPoints(type, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, depthIdxByMode[type]).catch((err) => console.error(err));
         }, 0);
     }
     } finally {
@@ -1888,7 +2053,7 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
         if (queuedCubeRequest) {
             const next = queuedCubeRequest;
             queuedCubeRequest = null;
-            loadPoints(next.type, next.stride, next.preserveView, next.depthMax).catch((err) => console.error(err));
+            loadPoints(next.type, next.stride, next.preserveView, next.depthMax, next.depthIdx).catch((err) => console.error(err));
         } else {
             queuedCubeRequest = null;
         }
@@ -1907,18 +2072,21 @@ animate();
 
 document.getElementById('tempBtn').onclick = () => {
     hasLoadedFullDepth = false;
-    loadPoints('temp', getCubeStrideByZoom(), false, 60);
+    loadPoints('temp', getCubeStrideByZoom(), false, 60, depthIdxByMode.temp);
 };
 document.getElementById('salBtn').onclick = () => {
     hasLoadedFullDepth = false;
-    loadPoints('salt', getCubeStrideByZoom(), false, 60);
+    loadPoints('salt', getCubeStrideByZoom(), false, 60, depthIdxByMode.salt);
 };
-document.getElementById('currentBtn').onclick = () => loadCurrentVectors(currentDepthIdx);
+document.getElementById('currentBtn').onclick = () => loadCurrentVectors(depthIdxByMode.current);
 document.getElementById('resetBtn').onclick = () => resetToInitialTempView();
 controls.addEventListener('end', () => {
     logCameraDistance();
     refreshCurrentVectorsByZoomIfNeeded();
     refreshCubesByZoomIfNeeded();
+});
+miniMapControls.addEventListener('end', () => {
+    logMiniMapState('end');
 });
 document.getElementById('axisBtn').onclick = () => {
     axisVisible = !axisVisible;
@@ -1929,7 +2097,38 @@ legendResetBtn.onclick = () => clearLegendSelection();
 currentLegendResetBtn.onclick = () => clearCurrentLegendSelection();
 depthSliderEl.oninput = (event) => {
     const nextDepth = Number(event.target.value);
-    loadCurrentVectors(Number.isFinite(nextDepth) ? nextDepth : 0);
+    const safeDepth = Number.isFinite(nextDepth) ? Math.max(0, Math.min(Math.round(nextDepth), maxDepthSliderIdx)) : 0;
+    if (currentMode === 'current') {
+        depthIdxByMode.current = safeDepth;
+        updateDepthLabel();
+        scheduleDepthLoadForCurrentMode(safeDepth);
+        return;
+    }
+    if (currentMode === 'temp' || currentMode === 'salt') {
+        depthIdxByMode[currentMode] = safeDepth;
+        updateDepthLabel();
+        scheduleDepthLoadForCurrentMode(safeDepth);
+    }
+};
+
+depthSliderEl.onchange = (event) => {
+    const nextDepth = Number(event.target.value);
+    const safeDepth = Number.isFinite(nextDepth) ? Math.max(0, Math.min(Math.round(nextDepth), maxDepthSliderIdx)) : 0;
+    if (depthSliderDebounceTimer) {
+        clearTimeout(depthSliderDebounceTimer);
+        depthSliderDebounceTimer = null;
+    }
+    if (currentMode === 'current') {
+        depthIdxByMode.current = safeDepth;
+        updateDepthLabel();
+        loadCurrentVectors(safeDepth).catch((err) => console.error(err));
+        return;
+    }
+    if (currentMode === 'temp' || currentMode === 'salt') {
+        depthIdxByMode[currentMode] = safeDepth;
+        updateDepthLabel();
+        loadPoints(currentMode, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, safeDepth).catch((err) => console.error(err));
+    }
 };
 
 window.setClipX = (v) => {
@@ -1945,7 +2144,19 @@ window.addEventListener('resize', () => {
     miniMapCamera.aspect = miniMapContainer.clientWidth / miniMapContainer.clientHeight;
     miniMapCamera.updateProjectionMatrix();
     miniMapRenderer.setSize(miniMapContainer.clientWidth, miniMapContainer.clientHeight);
+    if (miniMapRegionOutline?.material?.resolution) {
+        miniMapRegionOutline.material.resolution.set(miniMapContainer.clientWidth, miniMapContainer.clientHeight);
+    }
+    if (probeOverlayEl.style.display !== 'none') placeProbeOverlayBelowLegend();
 });
 
 updateMiniMapRegionOutline();
-loadPoints('temp', getCubeStrideByZoom(), false, 60);
+loadPoints('temp', getCubeStrideByZoom(), false, 60, depthIdxByMode.temp);
+window.dumpView = () => {
+    logMainCameraState('dump');
+    logMiniMapState('dump');
+};
+setTimeout(() => {
+    logMainCameraState('init');
+    logMiniMapState('init');
+}, 0);
