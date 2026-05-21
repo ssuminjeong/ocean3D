@@ -38,3 +38,7 @@ target/
 # Java / Gradle
 .gradle/
 
+# Large local datasets / references (keep local, do not track)
+oceanpy/99.data/HYCOM_120701.nc
+99.자료/
+99.자료/
