@@ -48,8 +48,9 @@ probeOverlayEl.style.position = 'fixed';
 probeOverlayEl.style.left = '12px';
 probeOverlayEl.style.top = '360px';
 probeOverlayEl.style.zIndex = '9999';
-probeOverlayEl.style.minWidth = '270px';
-probeOverlayEl.style.maxWidth = '380px';
+probeOverlayEl.style.minWidth = '0';
+probeOverlayEl.style.maxWidth = 'none';
+probeOverlayEl.style.boxSizing = 'border-box';
 probeOverlayEl.style.padding = '10px 12px';
 probeOverlayEl.style.border = '1px solid rgba(255,255,255,0.25)';
 probeOverlayEl.style.background = 'rgba(8,12,16,0.86)';
@@ -104,7 +105,7 @@ function buildBrightEarthTexture(sourceTexture) {
 }
 
 globeTextureLoader.load(
-    '/textures/earth_world_borders_geo_hsi.png',
+    '/textures/earth_world_borders_geo_hsi_500px.png',
     (texture) => {
         globe.material.map = buildBrightEarthTexture(texture);
         globe.material.needsUpdate = true;
@@ -188,6 +189,10 @@ let hasLoadedFullDepth = false;
 let currentVectorAnimBins = [];
 let fixedCurrentLegendMin = null;
 let fixedCurrentLegendMax = null;
+const fullStackCacheByType = {
+    temp: new Map(),
+    salt: new Map()
+};
 const BASE_CUBE_STRIDE = 3;
 const CUBE_DEPTH_UNIT_M = 2.0;
 const CUBE_STRIDE_LEVELS = [
@@ -196,7 +201,15 @@ const CUBE_STRIDE_LEVELS = [
 ];
 const DETAIL_Z_OFFSET = 0.015;
 const SLIDER_DEBOUNCE_MS = 120;
+const SLIDER_LIGHT_DEBOUNCE_MS = 40;
 let depthSliderDebounceTimer = null;
+const FLOW_PHASE_RATE = 0.00072;
+const FLOW_MIN_SCALE = -0.22;
+const FLOW_MAX_SCALE = 0.22;
+
+function getFullStackCacheKey(stride, depthMax) {
+    return `${Math.max(1, Math.round(stride))}|${Number(depthMax).toFixed(1)}`;
+}
 
 const CURRENT_VECTOR_STRIDE_LEVELS = [
     { maxDistance: 50, stride: 2 },
@@ -575,7 +588,7 @@ function buildCoordScaleArray(coordValues, fillRatio = 1.02, fallback = 1.0) {
     return scales;
 }
 
-function detectRecordStride(rawData, candidateStrides = [7, 4]) {
+function detectRecordStride(rawData, candidateStrides = [8, 7, 4]) {
     for (const stride of candidateStrides) {
         if (rawData.length % stride === 0) return stride;
     }
@@ -1086,8 +1099,8 @@ function buildAnimatedHeadPositions(metas, phaseScale = 0.0) {
 
 function updateCurrentVectorAnimation(timeMs) {
     if (currentMode !== 'current' || currentVectorAnimBins.length === 0) return;
-    const phase = Math.sin(timeMs * 0.0045);
-    const phaseScale = phase * 0.22;
+    const cycle = (timeMs * FLOW_PHASE_RATE) % 1.0;
+    const phaseScale = FLOW_MIN_SCALE + ((FLOW_MAX_SCALE - FLOW_MIN_SCALE) * cycle);
     for (const bin of currentVectorAnimBins) {
         if (!bin || !bin.metas || bin.metas.length === 0) continue;
         if (bin.bodyGeometry) {
@@ -1658,10 +1671,13 @@ function placeProbeOverlayBelowLegend() {
         : tempLegendEl;
     const fallbackTop = 360;
     const rect = anchor?.getBoundingClientRect?.();
+    const tempLegendRect = tempLegendEl?.getBoundingClientRect?.();
     const left = 12;
     const top = rect ? Math.round(rect.bottom + 8) : fallbackTop;
+    const width = tempLegendRect ? Math.round(tempLegendRect.width) : (rect ? Math.round(rect.width) : 270);
     probeOverlayEl.style.left = `${left}px`;
     probeOverlayEl.style.top = `${top}px`;
+    probeOverlayEl.style.width = `${Math.max(120, width)}px`;
     probeOverlayEl.style.right = 'auto';
     probeOverlayEl.style.bottom = 'auto';
 }
@@ -1689,15 +1705,17 @@ function renderProbeInfo(info, pinned = false) {
 
 function scheduleDepthLoadForCurrentMode(depthIdx) {
     if (depthSliderDebounceTimer) clearTimeout(depthSliderDebounceTimer);
+    const debounceMs = currentMode === 'current' ? SLIDER_DEBOUNCE_MS : SLIDER_LIGHT_DEBOUNCE_MS;
     depthSliderDebounceTimer = setTimeout(() => {
         if (currentMode === 'current') {
             loadCurrentVectors(depthIdx).catch((err) => console.error(err));
             return;
         }
         if (currentMode === 'temp' || currentMode === 'salt') {
-            loadPoints(currentMode, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, depthIdx).catch((err) => console.error(err));
+            applyLegendSelectionToPoints();
+            renderProbeInfo(null, false);
         }
-    }, SLIDER_DEBOUNCE_MS);
+    }, debounceMs);
 }
 
 function pickCubeInstance(event) {
@@ -1812,14 +1830,32 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     // Prevent partial chunk updates from flashing while buffers are being rewritten.
     pointGroup.visible = false;
 
-    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}&depth_idx=${depthIdxByMode[type]}`);
-    if (!res.ok) {
-        const message = await res.text();
-        throw new Error(message || `API request failed: ${res.status}`);
+    let buffer = null;
+    if (type === 'temp' || type === 'salt') {
+        const cacheMap = fullStackCacheByType[type];
+        const cacheKey = getFullStackCacheKey(currentCubeStride, safeDepthMax);
+        buffer = cacheMap.get(cacheKey) || null;
+        if (!buffer) {
+            const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}&depth_idx=0`);
+            if (!res.ok) {
+                const message = await res.text();
+                throw new Error(message || `API request failed: ${res.status}`);
+            }
+            buffer = await res.arrayBuffer();
+            cacheMap.set(cacheKey, buffer);
+        }
+    } else {
+        const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}&depth_idx=${depthIdxByMode[type]}`);
+        if (!res.ok) {
+            const message = await res.text();
+            throw new Error(message || `API request failed: ${res.status}`);
+        }
+        buffer = await res.arrayBuffer();
     }
-    const buffer = await res.arrayBuffer();
     if (requestToken !== cubeRequestToken) return;
 
+    const selectedDepthIdx = depthIdxByMode[type];
+    const isSingleDepthMode = selectedDepthIdx > 0;
     const header = new Float32Array(buffer, 0, 2);
     const [minV, maxV] = header;
     updateLegend(type, minV, maxV);
@@ -1870,17 +1906,21 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
             const lon = geo.lon;
             const lat = geo.lat;
             const approxDepthMeter = yToApproxDepth(py);
-            let depthIdx = 0;
-            if (depthValues.length > 0) {
-                let best = Number.POSITIVE_INFINITY;
-                for (let k = 0; k < depthValues.length; k++) {
-                    const diff = Math.abs(depthValues[k] - approxDepthMeter);
-                    if (diff < best) {
-                        best = diff;
-                        depthIdx = k;
+            const depthIdxFromPayload = recordStride >= 8 ? Math.max(0, Math.min(Math.round(rawData[rawIdx + 7]), maxDepthSliderIdx)) : null;
+            const depthIdx = depthIdxFromPayload ?? (isSingleDepthMode ? selectedDepthIdx : (() => {
+                let nearest = 0;
+                if (depthValues.length > 0) {
+                    let best = Number.POSITIVE_INFINITY;
+                    for (let k = 0; k < depthValues.length; k++) {
+                        const diff = Math.abs(depthValues[k] - approxDepthMeter);
+                        if (diff < best) {
+                            best = diff;
+                            nearest = k;
+                        }
                     }
                 }
-            }
+                return nearest;
+            })());
             const depthMeter = Number.isFinite(depthValues[depthIdx]) ? depthValues[depthIdx] : approxDepthMeter;
             pickPointRecords[globalIdx] = {
                 lon,
@@ -2000,20 +2040,27 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
             const value = values[j];
             const binIndex = resolveLegendBin(value, minV, maxV);
             binIndexes[j] = binIndex;
-            const y = slot.offsetsArray[j * 3 + 1];
-            const approxDepthMeter = yToApproxDepth(y);
-            let nearestDepthIdx = 0;
-            if (depthValues.length > 0) {
-                let best = Number.POSITIVE_INFINITY;
-                for (let k = 0; k < depthValues.length; k++) {
-                    const diff = Math.abs(depthValues[k] - approxDepthMeter);
-                    if (diff < best) {
-                        best = diff;
-                        nearestDepthIdx = k;
+            const depthIdxFromPayload = recordStride >= 8 ? Math.max(0, Math.min(Math.round(rawData[(start + j) * recordStride + 7]), maxDepthSliderIdx)) : null;
+            if (depthIdxFromPayload != null) {
+                depthIndexes[j] = depthIdxFromPayload;
+            } else if (isSingleDepthMode) {
+                depthIndexes[j] = selectedDepthIdx;
+            } else {
+                const y = slot.offsetsArray[j * 3 + 1];
+                const approxDepthMeter = yToApproxDepth(y);
+                let nearestDepthIdx = 0;
+                if (depthValues.length > 0) {
+                    let best = Number.POSITIVE_INFINITY;
+                    for (let k = 0; k < depthValues.length; k++) {
+                        const diff = Math.abs(depthValues[k] - approxDepthMeter);
+                        if (diff < best) {
+                            best = diff;
+                            nearestDepthIdx = k;
+                        }
                     }
                 }
+                depthIndexes[j] = Math.max(0, Math.min(nearestDepthIdx, maxDepthSliderIdx));
             }
-            depthIndexes[j] = Math.max(0, Math.min(nearestDepthIdx, maxDepthSliderIdx));
         }
         slot.cubes.userData.instancePositions = slot.offsetsArray;
         slot.cubes.userData.binIndexes = binIndexes;
@@ -2034,6 +2081,18 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
         Number.isFinite(minZ) && Number.isFinite(maxZ)
     ) {
         applyFixedOrCurrentAxes(minX, maxX, minY, maxY, minZ, maxZ);
+        if (fixedAxisBounds) {
+            drawCurrentBoundingCube(
+                fixedAxisBounds.minX,
+                fixedAxisBounds.maxX,
+                fixedAxisBounds.minY,
+                fixedAxisBounds.maxY,
+                fixedAxisBounds.minZ,
+                fixedAxisBounds.maxZ
+            );
+        } else {
+            drawCurrentBoundingCube(minX, maxX, minY, maxY, minZ, maxZ);
+        }
     }
 
     if (!preserveView) {
@@ -2041,12 +2100,6 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     }
     pointGroup.visible = true;
 
-    if (safeDepthMax < MAX_DISPLAY_DEPTH_M && !hasLoadedFullDepth && (type === 'temp' || type === 'salt')) {
-        hasLoadedFullDepth = true;
-        setTimeout(() => {
-            loadPoints(type, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, depthIdxByMode[type]).catch((err) => console.error(err));
-        }, 0);
-    }
     } finally {
         pointGroup.visible = true;
         isCubeLoading = false;
@@ -2057,6 +2110,33 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
         } else {
             queuedCubeRequest = null;
         }
+    }
+}
+
+async function preloadFullStackForType(type, strideOverride = BASE_CUBE_STRIDE, depthMaxOverride = MAX_DISPLAY_DEPTH_M) {
+    if (type !== 'temp' && type !== 'salt') return;
+    await ensureOceanMeta();
+    const stride = Math.max(1, Math.round(Number(strideOverride) || BASE_CUBE_STRIDE));
+    const depthMax = Math.max(2, Math.min(Number(depthMaxOverride) || MAX_DISPLAY_DEPTH_M, MAX_DISPLAY_DEPTH_M));
+    const cacheMap = fullStackCacheByType[type];
+    const cacheKey = getFullStackCacheKey(stride, depthMax);
+    if (cacheMap.has(cacheKey)) return;
+
+    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${stride}&depth_max=${depthMax}&depth_idx=0`);
+    if (!res.ok) {
+        const message = await res.text();
+        throw new Error(message || `Preload API request failed: ${res.status}`);
+    }
+    const buffer = await res.arrayBuffer();
+    cacheMap.set(cacheKey, buffer);
+}
+
+function scheduleSaltPreloadAfterFirstRender(stride, depthMax) {
+    const run = () => preloadFullStackForType('salt', stride, depthMax).catch((err) => console.error(err));
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        window.requestIdleCallback(() => run(), { timeout: 2000 });
+    } else {
+        setTimeout(run, 1200);
     }
 }
 
@@ -2071,12 +2151,10 @@ function animate() {
 animate();
 
 document.getElementById('tempBtn').onclick = () => {
-    hasLoadedFullDepth = false;
-    loadPoints('temp', getCubeStrideByZoom(), false, 60, depthIdxByMode.temp);
+    loadPoints('temp', getCubeStrideByZoom(), true, MAX_DISPLAY_DEPTH_M, depthIdxByMode.temp);
 };
 document.getElementById('salBtn').onclick = () => {
-    hasLoadedFullDepth = false;
-    loadPoints('salt', getCubeStrideByZoom(), false, 60, depthIdxByMode.salt);
+    loadPoints('salt', getCubeStrideByZoom(), true, MAX_DISPLAY_DEPTH_M, depthIdxByMode.salt);
 };
 document.getElementById('currentBtn').onclick = () => loadCurrentVectors(depthIdxByMode.current);
 document.getElementById('resetBtn').onclick = () => resetToInitialTempView();
@@ -2127,7 +2205,8 @@ depthSliderEl.onchange = (event) => {
     if (currentMode === 'temp' || currentMode === 'salt') {
         depthIdxByMode[currentMode] = safeDepth;
         updateDepthLabel();
-        loadPoints(currentMode, currentCubeStride, true, MAX_DISPLAY_DEPTH_M, safeDepth).catch((err) => console.error(err));
+        applyLegendSelectionToPoints();
+        renderProbeInfo(null, false);
     }
 };
 
@@ -2151,7 +2230,10 @@ window.addEventListener('resize', () => {
 });
 
 updateMiniMapRegionOutline();
-loadPoints('temp', getCubeStrideByZoom(), false, 60, depthIdxByMode.temp);
+const initialCubeStride = getCubeStrideByZoom();
+loadPoints('temp', initialCubeStride, false, MAX_DISPLAY_DEPTH_M, depthIdxByMode.temp)
+    .then(() => scheduleSaltPreloadAfterFirstRender(initialCubeStride, MAX_DISPLAY_DEPTH_M))
+    .catch((err) => console.error(err));
 window.dumpView = () => {
     logMainCameraState('dump');
     logMiniMapState('dump');

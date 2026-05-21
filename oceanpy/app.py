@@ -190,6 +190,8 @@ def _build_point_payload(
     depth_idx: int,
     stride_x: int = POINT_STRIDE_X,
     stride_y: int = POINT_STRIDE_Y,
+    include_scales: bool = False,
+    source_depth_idx: Optional[int] = None,
 ):
     lon_center = lons.mean()
     lat_center = lats.mean()
@@ -216,7 +218,20 @@ def _build_point_payload(
 
     chunks = []
     unique_rows = np.unique(y)
-    for idx, row in enumerate(unique_rows):
+
+    lon_edges = None
+    lat_edges = None
+    x_edge_local = None
+    z_edge_local = None
+    default_sy = None
+    if include_scales:
+        lon_edges = compute_edges(lons)
+        lat_edges = compute_edges(lats)
+        x_edge_local, _ = _to_local_xy_m(lon_edges, np.full_like(lon_edges, lat_center), lon_center, lat_center)
+        _, z_edge_local = _to_local_xy_m(np.full_like(lat_edges, lon_center), lat_edges, lon_center, lat_center)
+        default_sy = _depth_to_y(DEPTH_UNIT_M)
+
+    for row in unique_rows:
         row_mask = (y == row)
         row_x = x[row_mask]
         if row_x.size == 0:
@@ -224,27 +239,20 @@ def _build_point_payload(
         row_vals = layer_data[row, row_x]
         tx, row_tz = _to_local_xy_m(lons[row_x], np.full(row_x.shape, lats[row], dtype=np.float64), lon_center, lat_center)
         ty = np.full_like(tx, -_depth_to_y(depth_m))
-        chunks.append(np.column_stack((tx, ty, row_tz, row_vals)).astype(np.float32))
 
-        if idx >= (unique_rows.size - 1):
-            continue
-
-        next_row = int(unique_rows[idx + 1])
-        inter_lats = _intermediate_latitudes(float(lats[row]), float(lats[next_row]), TARGET_LAT_STEP_DEG)
-        if not inter_lats:
-            continue
-
-        next_vals = layer_data[next_row, row_x]
-        for k, lat_mid in enumerate(inter_lats, start=1):
-            alpha = k / (len(inter_lats) + 1)
-            mid_vals = (1.0 - alpha) * row_vals + alpha * next_vals
-            _, mid_tz = _to_local_xy_m(
-                np.full(row_x.shape, lons[0], dtype=np.float64),
-                np.full(row_x.shape, lat_mid, dtype=np.float64),
-                lon_center,
-                lat_center
-            )
-            chunks.append(np.column_stack((tx, ty, mid_tz, mid_vals)).astype(np.float32))
+        if include_scales and x_edge_local is not None and z_edge_local is not None and default_sy is not None:
+            x_left = x_edge_local[row_x]
+            x_right = x_edge_local[row_x + 1]
+            sx = np.abs(x_right - x_left) * 1.02
+            z_top = z_edge_local[row]
+            z_bottom = z_edge_local[row + 1]
+            sz = np.full(row_x.shape, abs(float(z_bottom - z_top)) * 1.02, dtype=np.float64)
+            sy = np.full(row_x.shape, default_sy, dtype=np.float64)
+            depth_idx_value = float(source_depth_idx if source_depth_idx is not None else safe_depth_idx)
+            depth_idx_col = np.full(row_x.shape, depth_idx_value, dtype=np.float64)
+            chunks.append(np.column_stack((tx, ty, row_tz, row_vals, sx, sy, sz, depth_idx_col)).astype(np.float32))
+        else:
+            chunks.append(np.column_stack((tx, ty, row_tz, row_vals)).astype(np.float32))
 
     if not chunks:
         header = np.array([0.0, 0.0], dtype=np.float32)
@@ -361,7 +369,7 @@ def _build_stack_payload(
                 for center_m, height_m in depth_segments:
                     cy = -_depth_to_y(center_m)
                     sy = _depth_to_y(height_m)
-                    layer_records.append([x_center, cy, z_center, value, sx, sy, sz])
+                    layer_records.append([x_center, cy, z_center, value, sx, sy, sz, float(idx_pos)])
 
         if layer_records:
             chunks.append(np.array(layer_records, dtype=np.float32))
@@ -481,46 +489,95 @@ def get_ocean_3d(
     try:
         dataset = get_dataset()
         time_len = int(dataset.sizes.get("time", 1))
-        depth_len = int(dataset.sizes.get("depth", 1))
+        depth_values_all = np.array(dataset.depth.values, dtype=np.float64)
+        visible_depth_idx = _visible_depth_indices(depth_values_all, MAX_DISPLAY_DEPTH_M)
         safe_time = _clip_index(time_idx, time_len)
-        safe_depth = _clip_index(depth_idx, depth_len)
+        requested_depth_idx = max(0, int(depth_idx))
 
         safe_stride = max(1, int(stride))
         safe_depth_max = max(2.0, min(float(depth_max), MAX_DISPLAY_DEPTH_M))
 
         if type == "temp":
-            data_3d = dataset.water_temp.isel(time=safe_time).values
-            cache_key = ("ocean_3d", "temp", safe_time, safe_stride, safe_depth_max)
-            payload = _cache_get(cache_key)
-            if payload is None:
-                payload = _build_stack_payload(
-                    data_3d,
-                    dataset.lon.values,
-                    dataset.lat.values,
-                    dataset.depth.values,
-                    stride_x=1,
-                    stride_y=1,
-                    block_size=safe_stride,
-                    max_depth_m=safe_depth_max,
-                )
-                _cache_put(cache_key, payload)
+            if requested_depth_idx == 0:
+                data_3d = dataset.water_temp.isel(time=safe_time).values
+                cache_key = ("ocean_3d", "temp", "stack", safe_time, safe_stride, safe_depth_max)
+                payload = _cache_get(cache_key)
+                if payload is None:
+                    payload = _build_stack_payload(
+                        data_3d,
+                        dataset.lon.values,
+                        dataset.lat.values,
+                        dataset.depth.values,
+                        stride_x=1,
+                        stride_y=1,
+                        block_size=safe_stride,
+                        max_depth_m=safe_depth_max,
+                    )
+                    _cache_put(cache_key, payload)
+            else:
+                if visible_depth_idx.size == 0:
+                    return Response(content="ocean_3d: no depth <= 200m", status_code=400)
+                visible_len = int(visible_depth_idx.size)
+                safe_depth_visible = _clip_index(requested_depth_idx, visible_len)
+                actual_depth_idx = int(visible_depth_idx[safe_depth_visible])
+                layer_data = dataset.water_temp.isel(time=safe_time, depth=actual_depth_idx).values
+                cache_key = ("ocean_3d", "temp", "slice", safe_time, safe_stride, safe_depth_visible)
+                payload = _cache_get(cache_key)
+                if payload is None:
+                    payload = _build_point_payload(
+                        layer_data,
+                        dataset.lon.values,
+                        dataset.lat.values,
+                        depth_values_all,
+                        actual_depth_idx,
+                        safe_stride,
+                        safe_stride,
+                        include_scales=True,
+                        source_depth_idx=safe_depth_visible,
+                    )
+                    _cache_put(cache_key, payload)
         elif type == "salt":
-            data_3d = dataset.salinity.isel(time=safe_time).values
-            cache_key = ("ocean_3d", "salt", safe_time, safe_stride, safe_depth_max)
-            payload = _cache_get(cache_key)
-            if payload is None:
-                payload = _build_stack_payload(
-                    data_3d,
-                    dataset.lon.values,
-                    dataset.lat.values,
-                    dataset.depth.values,
-                    stride_x=1,
-                    stride_y=1,
-                    block_size=safe_stride,
-                    max_depth_m=safe_depth_max,
-                )
-                _cache_put(cache_key, payload)
+            if requested_depth_idx == 0:
+                data_3d = dataset.salinity.isel(time=safe_time).values
+                cache_key = ("ocean_3d", "salt", "stack", safe_time, safe_stride, safe_depth_max)
+                payload = _cache_get(cache_key)
+                if payload is None:
+                    payload = _build_stack_payload(
+                        data_3d,
+                        dataset.lon.values,
+                        dataset.lat.values,
+                        dataset.depth.values,
+                        stride_x=1,
+                        stride_y=1,
+                        block_size=safe_stride,
+                        max_depth_m=safe_depth_max,
+                    )
+                    _cache_put(cache_key, payload)
+            else:
+                if visible_depth_idx.size == 0:
+                    return Response(content="ocean_3d: no depth <= 200m", status_code=400)
+                visible_len = int(visible_depth_idx.size)
+                safe_depth_visible = _clip_index(requested_depth_idx, visible_len)
+                actual_depth_idx = int(visible_depth_idx[safe_depth_visible])
+                layer_data = dataset.salinity.isel(time=safe_time, depth=actual_depth_idx).values
+                cache_key = ("ocean_3d", "salt", "slice", safe_time, safe_stride, safe_depth_visible)
+                payload = _cache_get(cache_key)
+                if payload is None:
+                    payload = _build_point_payload(
+                        layer_data,
+                        dataset.lon.values,
+                        dataset.lat.values,
+                        depth_values_all,
+                        actual_depth_idx,
+                        safe_stride,
+                        safe_stride,
+                        include_scales=True,
+                        source_depth_idx=safe_depth_visible,
+                    )
+                    _cache_put(cache_key, payload)
         elif type == "current":
+            depth_len = int(dataset.sizes.get("depth", 1))
+            safe_depth = _clip_index(requested_depth_idx, depth_len)
             layer_data, safe_time, safe_depth = _get_slice(dataset, type, safe_time, safe_depth)
             payload = _build_point_payload(
                 layer_data, dataset.lon.values, dataset.lat.values, dataset.depth.values, safe_depth, safe_stride, safe_stride

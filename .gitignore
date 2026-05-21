@@ -1,0 +1,40 @@
+# OS / Editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+oceanpy/.venv/
+oceanpy/venv/
+
+# Logs
+*.log
+oceanpy/server.log
+oceanthreejs/backserver.log
+
+# Build artifacts
+build/
+out/
+dist/
+target/
+*.egg-info/
+
+# Java / Gradle
+.gradle/
+
