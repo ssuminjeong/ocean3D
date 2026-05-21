@@ -40,7 +40,6 @@ const sourceLatCenter = (LAT_MIN + LAT_MAX) * 0.5;
 const sourceScale = 1.6;
 const MAX_DISPLAY_DEPTH_M = 200.0;
 const DEPTH_VIEW_SCALE = 0.18;
-let pinnedProbe = null;
 let pickPoints = null;
 let pickPointRecords = [];
 
@@ -153,6 +152,10 @@ let legendBins = [];
 let lastLegendMin = 0;
 let lastLegendMax = 1;
 let selectedBinIndexes = new Set();
+const selectedBinsByType = {
+    temp: new Set(),
+    salt: new Set()
+};
 let currentType = 'temp';
 let currentMode = 'temp';
 let depthValues = [];
@@ -166,13 +169,18 @@ let isCurrentVectorLoading = false;
 let queuedCurrentVectorStride = null;
 let currentCubeStride = 5;
 let isCubeLoading = false;
-let queuedCubeStride = null;
+let queuedCubeRequest = null;
+let cubeRequestToken = 0;
 let detailPoints = null;
 let detailPickPoints = null;
 let detailPickPointRecords = [];
 let detailRequestToken = 0;
 let detailDebounceTimer = null;
 let currentDataType = 'temp';
+let hasLoadedFullDepth = false;
+let currentVectorAnimBins = [];
+let fixedCurrentLegendMin = null;
+let fixedCurrentLegendMax = null;
 const BASE_CUBE_STRIDE = 3;
 const CUBE_DEPTH_UNIT_M = 2.0;
 const CUBE_STRIDE_LEVELS = [
@@ -752,12 +760,18 @@ function toggleLegendBin(binIndex) {
     } else {
         selectedBinIndexes.add(binIndex);
     }
+    if (currentType === 'temp' || currentType === 'salt') {
+        selectedBinsByType[currentType] = new Set(selectedBinIndexes);
+    }
     refreshLegendSelectionStyles();
     applyLegendSelectionToPoints();
 }
 
 function clearLegendSelection() {
     selectedBinIndexes.clear();
+    if (currentType === 'temp' || currentType === 'salt') {
+        selectedBinsByType[currentType] = new Set();
+    }
     refreshLegendSelectionStyles();
     applyLegendSelectionToPoints();
 }
@@ -771,7 +785,11 @@ function updateLegend(type, minV, maxV) {
     currentType = type;
     lastLegendMin = minV;
     lastLegendMax = maxV;
-    selectedBinIndexes = new Set();
+    if (type === 'temp' || type === 'salt') {
+        selectedBinIndexes = new Set(selectedBinsByType[type] || []);
+    } else {
+        selectedBinIndexes = new Set();
+    }
     legendBins = [];
 
     const titleEl = document.getElementById('tempLegendTitle');
@@ -890,6 +908,7 @@ function clearCurrentVectorScene() {
         if (child.geometry) child.geometry.dispose();
         if (child.material) child.material.dispose();
     }
+    currentVectorAnimBins = [];
 }
 
 function hideCurrentControls() {
@@ -938,7 +957,6 @@ function buildCurrentLegend(speedMin, speedMax) {
     const range = Math.max(speedMax - speedMin, 1e-6);
     const slowColor = new THREE.Color(0x2f2f2f);
     const fastColor = new THREE.Color(0xffffff);
-    selectedCurrentStepIndexes = new Set();
     for (let i = stepCount - 1; i >= 0; i--) {
         const row = document.createElement('div');
         row.className = 'temp-legend-row';
@@ -976,6 +994,71 @@ function currentSpeedColor(speed, minV, maxV) {
     const slow = new THREE.Color(0x2f2f2f);
     const fast = new THREE.Color(0xffffff);
     return slow.clone().lerp(fast, t);
+}
+
+function buildAnimatedBodyPositions(metas, phaseScale = 0.0) {
+    const positions = new Float32Array(metas.length * 6);
+    for (let i = 0; i < metas.length; i++) {
+        const m = metas[i];
+        const length = m.baseLen * (1.0 + phaseScale);
+        const ex = m.x + (m.dirX * length);
+        const ez = m.z + (m.dirZ * length);
+        const p = i * 6;
+        positions[p] = m.x;
+        positions[p + 1] = m.y;
+        positions[p + 2] = m.z;
+        positions[p + 3] = ex;
+        positions[p + 4] = m.y;
+        positions[p + 5] = ez;
+    }
+    return positions;
+}
+
+function buildAnimatedHeadPositions(metas, phaseScale = 0.0) {
+    const positions = new Float32Array(metas.length * 12);
+    for (let i = 0; i < metas.length; i++) {
+        const m = metas[i];
+        const length = m.baseLen * (1.0 + phaseScale);
+        const ex = m.x + (m.dirX * length);
+        const ez = m.z + (m.dirZ * length);
+        const px = -m.dirZ;
+        const pz = m.dirX;
+        const bx = ex - (m.dirX * m.headLen);
+        const bz = ez - (m.dirZ * m.headLen);
+        const lx = bx + (px * m.headHalfWidth);
+        const lz = bz + (pz * m.headHalfWidth);
+        const rx = bx - (px * m.headHalfWidth);
+        const rz = bz - (pz * m.headHalfWidth);
+        const p = i * 12;
+        positions[p] = ex;
+        positions[p + 1] = m.y;
+        positions[p + 2] = ez;
+        positions[p + 3] = lx;
+        positions[p + 4] = m.y;
+        positions[p + 5] = lz;
+        positions[p + 6] = ex;
+        positions[p + 7] = m.y;
+        positions[p + 8] = ez;
+        positions[p + 9] = rx;
+        positions[p + 10] = m.y;
+        positions[p + 11] = rz;
+    }
+    return positions;
+}
+
+function updateCurrentVectorAnimation(timeMs) {
+    if (currentMode !== 'current' || currentVectorAnimBins.length === 0) return;
+    const phase = Math.sin(timeMs * 0.0045);
+    const phaseScale = phase * 0.22;
+    for (const bin of currentVectorAnimBins) {
+        if (!bin || !bin.metas || bin.metas.length === 0) continue;
+        if (bin.bodyGeometry) {
+            bin.bodyGeometry.setPositions(buildAnimatedBodyPositions(bin.metas, phaseScale));
+        }
+        if (bin.headGeometry) {
+            bin.headGeometry.setPositions(buildAnimatedHeadPositions(bin.metas, phaseScale));
+        }
+    }
 }
 
 function drawCurrentBoundingCube(minX, maxX, minY, maxY, minZ, maxZ) {
@@ -1059,7 +1142,9 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         }
 
         clearCurrentVectorScene();
-        while (pointGroup.children.length > 0) pointGroup.remove(pointGroup.children[0]);
+        // Keep cube chunk meshes attached to the scene so the chunk pool remains valid
+        // when switching back to temp/salt mode. We only hide the group in current mode.
+        pointGroup.visible = false;
         pickPoints = null;
         pickPointRecords = [];
         clearDetailLayer();
@@ -1071,11 +1156,26 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         const header = new Float32Array(buffer, 0, 4);
         const speedMin = header[0];
         const speedMax = header[1];
-        buildCurrentLegend(speedMin, speedMax);
+        if (!Number.isFinite(fixedCurrentLegendMin) || !Number.isFinite(fixedCurrentLegendMax)) {
+            fixedCurrentLegendMin = speedMin;
+            fixedCurrentLegendMax = speedMax;
+        }
+        const legendMin = fixedCurrentLegendMin;
+        const legendMax = fixedCurrentLegendMax;
+        buildCurrentLegend(legendMin, legendMax);
         const recordCount = Math.max(0, Math.floor(header[2]));
         const records = new Float32Array(buffer, 16, recordCount * 6);
 
-    const bounds = fixedAxisBounds || {
+    const bounds = fixedAxisBounds ? {
+        minX: fixedAxisBounds.minX,
+        maxX: fixedAxisBounds.maxX,
+        minY: fixedAxisBounds.minY,
+        // Allow surface current at y=0 to remain visible even when temp/salt
+        // cube centers keep maxY slightly below zero.
+        maxY: Math.max(fixedAxisBounds.maxY, 0.0),
+        minZ: fixedAxisBounds.minZ,
+        maxZ: fixedAxisBounds.maxZ
+    } : {
         minX: Number.NEGATIVE_INFINITY,
         maxX: Number.POSITIVE_INFINITY,
         minY: Number.NEGATIVE_INFINITY,
@@ -1101,7 +1201,7 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
             dirX = u / mag;
             dirZ = -v / mag;
         }
-        const stepIndex = getSpeedStepIndex(speed, speedMin, speedMax);
+        const stepIndex = getSpeedStepIndex(speed, legendMin, legendMax);
         const lengthScale = (1.0 / 3.0) + ((stepIndex / 9.0) * (1.0 / 3.0));
         const currentLength = fixedArrowLength * lengthScale;
         const tailBoost = 1.0 + (0.3 * (stepIndex / 9.0));
@@ -1119,6 +1219,7 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
     const bodyBinPositions = Array.from({ length: 10 }, () => []);
     const headBinPositions = Array.from({ length: 10 }, () => []);
     const headBinColors = Array.from({ length: 10 }, () => []);
+    const binMetas = Array.from({ length: 10 }, () => []);
     const dir = new THREE.Vector3();
     const head = new THREE.Vector3();
     const perp = new THREE.Vector3();
@@ -1142,11 +1243,29 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         const z = item.z;
         const ex = item.ex;
         const ey = item.ey;
+        const ez = item.ez;
         const speed = item.speed;
 
         const stepIndex = item.stepIndex;
         bodyBinPositions[stepIndex].push(x, y, z, ex, y, ez);
-        const color = currentSpeedColor(speed, speedMin, speedMax);
+        const color = currentSpeedColor(speed, legendMin, legendMax);
+        const dirLen = Math.hypot(ex - x, ez - z);
+        let normDirX = 1.0;
+        let normDirZ = 0.0;
+        if (dirLen > 1e-6) {
+            normDirX = (ex - x) / dirLen;
+            normDirZ = (ez - z) / dirLen;
+        }
+        binMetas[stepIndex].push({
+            x,
+            y,
+            z,
+            dirX: normDirX,
+            dirZ: normDirZ,
+            baseLen: dirLen,
+            headLen: headLength,
+            headHalfWidth
+        });
 
         dir.set(ex - x, 0, ez - z);
         if (dir.lengthSq() < 1e-6) dir.set(1, 0, 0);
@@ -1175,6 +1294,7 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         maxZ = Math.max(maxZ, z, ez);
     }
 
+    currentVectorAnimBins = [];
     for (let i = 0; i < 10; i++) {
         const pos = bodyBinPositions[i];
         if (pos.length === 0) continue;
@@ -1195,6 +1315,12 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         const lines = new LineSegments2(lineGeometry, lineMaterial);
         lines.userData.stepIndex = i;
         currentVectorGroup.add(lines);
+        currentVectorAnimBins.push({
+            stepIndex: i,
+            metas: binMetas[i],
+            bodyGeometry: lineGeometry,
+            headGeometry: null
+        });
     }
 
     for (let i = 0; i < 10; i++) {
@@ -1215,6 +1341,8 @@ async function loadCurrentVectors(depthIdx = currentDepthIdx, strideOverride = c
         const headLines = new LineSegments2(headGeometry, headMaterial);
         headLines.userData.stepIndex = i;
         currentVectorGroup.add(headLines);
+        const targetBin = currentVectorAnimBins.find((b) => b.stepIndex === i);
+        if (targetBin) targetBin.headGeometry = headGeometry;
     }
 
     applyCurrentStepVisibility();
@@ -1450,13 +1578,13 @@ function buildProbeInfoFromRecord(record) {
 
 function renderProbeInfo(info, pinned = false) {
     if (!info) {
-        if (!pinnedProbe) probeOverlayEl.style.display = 'none';
+        probeOverlayEl.style.display = 'none';
         return;
     }
     const depthLine = info.depthMeter == null
         ? `depth_idx: ${info.depthIdx}`
         : `depth: ${info.depthMeter.toFixed(2)} m (idx ${info.depthIdx})`;
-    const pinLine = pinned ? '[PINNED] click empty area to clear' : '[HOVER] click to pin';
+    const pinLine = '[HOVER]';
     probeOverlayEl.textContent = [
         pinLine,
         `mode: ${currentMode}`,
@@ -1491,24 +1619,12 @@ function pickCubeInstance(event) {
 }
 
 renderer.domElement.addEventListener('mousemove', (event) => {
-    if (pinnedProbe) return;
     const picked = pickCubeInstance(event);
     if (!picked) {
         renderProbeInfo(null, false);
         return;
     }
     renderProbeInfo(buildProbeInfoFromRecord(picked.record), false);
-});
-
-renderer.domElement.addEventListener('click', (event) => {
-    const picked = pickCubeInstance(event);
-    if (!picked) {
-        pinnedProbe = null;
-        renderProbeInfo(null, false);
-        return;
-    }
-    pinnedProbe = picked;
-    renderProbeInfo(buildProbeInfoFromRecord(picked.record), true);
 });
 
 function refreshCurrentVectorsByZoomIfNeeded() {
@@ -1525,19 +1641,18 @@ function refreshCubesByZoomIfNeeded() {
     loadPoints(currentMode, nextStride, true).catch((err) => console.error(err));
 }
 
-function logCameraDistance() {
-    const distance = camera.position.distanceTo(controls.target);
-    console.log(`[CameraDistance] ${distance.toFixed(3)}`);
-}
+function logCameraDistance() {}
 
-async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView = false) {
+async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView = false, depthMaxOverride = MAX_DISPLAY_DEPTH_M) {
     const strideArg = Number(strideOverride);
     const stride = Number.isFinite(strideArg) ? Math.max(1, Math.round(strideArg)) : BASE_CUBE_STRIDE;
+    const safeDepthMax = Math.max(2, Math.min(Number(depthMaxOverride) || MAX_DISPLAY_DEPTH_M, MAX_DISPLAY_DEPTH_M));
     if (isCubeLoading) {
-        queuedCubeStride = stride;
+        queuedCubeRequest = { type, stride, preserveView, depthMax: safeDepthMax };
         return;
     }
     isCubeLoading = true;
+    const requestToken = ++cubeRequestToken;
 
     try {
     await ensureOceanMeta();
@@ -1550,12 +1665,13 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     // Prevent partial chunk updates from flashing while buffers are being rewritten.
     pointGroup.visible = false;
 
-    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}`);
+    const res = await fetch(`/api/ocean_3d?type=${type}&stride=${currentCubeStride}&depth_max=${safeDepthMax}`);
     if (!res.ok) {
         const message = await res.text();
         throw new Error(message || `API request failed: ${res.status}`);
     }
     const buffer = await res.arrayBuffer();
+    if (requestToken !== cubeRequestToken) return;
 
     const header = new Float32Array(buffer, 0, 2);
     const [minV, maxV] = header;
@@ -1564,9 +1680,6 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
     const recordStride = detectRecordStride(rawData);
     const totalPoints = rawData.length / recordStride;
     const pointsPerChunk = Math.ceil(totalPoints / CHUNK_COUNT);
-    console.log(
-        `[CubeLoad] type=${type} stride=${currentCubeStride} totalPoints=${totalPoints} pointsPerChunk=${pointsPerChunk}`
-    );
 
     let minX = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
@@ -1747,10 +1860,6 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
 
     const usedChunkCount = chunkPositionArrays.length;
 
-    const renderedInstances = cubeChunkPool.reduce((sum, slot) => sum + (slot.geometry.instanceCount || 0), 0);
-    console.log(
-        `[CubeRender] type=${type} stride=${currentCubeStride} usedChunks=${usedChunkCount} renderedInstances=${renderedInstances}`
-    );
 
     applyLegendSelectionToPoints();
 
@@ -1766,21 +1875,29 @@ async function loadPoints(type, strideOverride = BASE_CUBE_STRIDE, preserveView 
         fitCameraToPointGroup();
     }
     pointGroup.visible = true;
+
+    if (safeDepthMax < MAX_DISPLAY_DEPTH_M && !hasLoadedFullDepth && (type === 'temp' || type === 'salt')) {
+        hasLoadedFullDepth = true;
+        setTimeout(() => {
+            loadPoints(type, currentCubeStride, true, MAX_DISPLAY_DEPTH_M).catch((err) => console.error(err));
+        }, 0);
+    }
     } finally {
         pointGroup.visible = true;
         isCubeLoading = false;
-        if (queuedCubeStride != null && queuedCubeStride !== currentCubeStride) {
-            const nextStride = queuedCubeStride;
-            queuedCubeStride = null;
-            loadPoints(currentMode, nextStride, true).catch((err) => console.error(err));
+        if (queuedCubeRequest) {
+            const next = queuedCubeRequest;
+            queuedCubeRequest = null;
+            loadPoints(next.type, next.stride, next.preserveView, next.depthMax).catch((err) => console.error(err));
         } else {
-            queuedCubeStride = null;
+            queuedCubeRequest = null;
         }
     }
 }
 
 function animate() {
     requestAnimationFrame(animate);
+    updateCurrentVectorAnimation(performance.now());
     controls.update();
     miniMapControls.update();
     renderer.render(scene, camera);
@@ -1788,8 +1905,14 @@ function animate() {
 }
 animate();
 
-document.getElementById('tempBtn').onclick = () => loadPoints('temp');
-document.getElementById('salBtn').onclick = () => loadPoints('salt');
+document.getElementById('tempBtn').onclick = () => {
+    hasLoadedFullDepth = false;
+    loadPoints('temp', getCubeStrideByZoom(), false, 60);
+};
+document.getElementById('salBtn').onclick = () => {
+    hasLoadedFullDepth = false;
+    loadPoints('salt', getCubeStrideByZoom(), false, 60);
+};
 document.getElementById('currentBtn').onclick = () => loadCurrentVectors(currentDepthIdx);
 document.getElementById('resetBtn').onclick = () => resetToInitialTempView();
 controls.addEventListener('end', () => {
@@ -1825,4 +1948,4 @@ window.addEventListener('resize', () => {
 });
 
 updateMiniMapRegionOutline();
-loadPoints('temp');
+loadPoints('temp', getCubeStrideByZoom(), false, 60);

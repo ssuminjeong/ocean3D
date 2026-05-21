@@ -1,5 +1,6 @@
 import os
 from typing import Optional
+from collections import OrderedDict
 
 from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,8 @@ TARGET_LAT_STEP_DEG = 0.04
 DEFAULT_VECTOR_STRIDE = 5
 MAX_VECTOR_POINTS = 12_000
 MAX_STREAMLINE_SEGMENTS = 25_000
+STACK_CACHE_MAX_ENTRIES = 12
+stack_payload_cache: "OrderedDict[tuple, bytes]" = OrderedDict()
 
 
 def get_dataset():
@@ -55,6 +58,21 @@ def _visible_depth_indices(depth_values: np.ndarray, max_depth_m: float = MAX_DI
     if depth_values.size == 0:
         return np.array([], dtype=np.int32)
     return np.where(depth_values <= float(max_depth_m))[0].astype(np.int32, copy=False)
+
+
+def _cache_get(cache_key: tuple) -> Optional[bytes]:
+    payload = stack_payload_cache.get(cache_key)
+    if payload is None:
+        return None
+    stack_payload_cache.move_to_end(cache_key)
+    return payload
+
+
+def _cache_put(cache_key: tuple, payload: bytes) -> None:
+    stack_payload_cache[cache_key] = payload
+    stack_payload_cache.move_to_end(cache_key)
+    while len(stack_payload_cache) > STACK_CACHE_MAX_ENTRIES:
+        stack_payload_cache.popitem(last=False)
 
 
 def _depth_layer_centers(start_m: float, end_m: float, unit_m: float = DEPTH_UNIT_M) -> np.ndarray:
@@ -256,6 +274,7 @@ def _build_stack_payload(
     stride_x: int = POINT_STRIDE_X,
     stride_y: int = POINT_STRIDE_Y,
     block_size: int = 5,
+    max_depth_m: float = MAX_DISPLAY_DEPTH_M,
 ):
     lon_center = lons.mean()
     lat_center = lats.mean()
@@ -278,7 +297,7 @@ def _build_stack_payload(
     if x_candidates.size == 0 or y_candidates.size == 0:
         header = np.array([0.0, 0.0], dtype=np.float32)
         return header.tobytes()
-    visible_depth_idx = _visible_depth_indices(depth_values, MAX_DISPLAY_DEPTH_M)
+    visible_depth_idx = _visible_depth_indices(depth_values, max_depth_m)
 
     # Compute on full 1x1 base grid; render-time grouping is controlled by block_size.
     safe_block = max(1, int(block_size))
@@ -298,8 +317,8 @@ def _build_stack_payload(
             next_idx = int(visible_depth_idx[idx_pos + 1])
             depth_end = float(depth_values[next_idx])
         else:
-            depth_end = MAX_DISPLAY_DEPTH_M + DEPTH_UNIT_M
-        depth_end = min(depth_end, MAX_DISPLAY_DEPTH_M + DEPTH_UNIT_M)
+            depth_end = float(max_depth_m) + DEPTH_UNIT_M
+        depth_end = min(depth_end, float(max_depth_m) + DEPTH_UNIT_M)
         depth_segments = _depth_segments(depth_start, depth_end, DEPTH_UNIT_M)
         if not depth_segments:
             continue
@@ -364,11 +383,6 @@ def _build_stack_payload(
         data_max = 0.0
     header = np.array([data_min, data_max], dtype=np.float32)
     payload = header.tobytes() + final_data.tobytes()
-    points = max(0, (len(payload) - 8) // (7 * 4))
-    print(
-        f"[StackPayload] stride=({stride_x},{stride_y}) depth_unit={DEPTH_UNIT_M}m "
-        f"depth_fill_layers={depth_fill_layers} points={points}"
-    )
     return payload
 
 
@@ -435,7 +449,6 @@ def get_coastline_bytes():
         seg_array = seg_array[::stride]
 
     coastline_bytes = seg_array.tobytes()
-    print(f"해안선 세그먼트: {seg_array.shape[0]} lines")
     return coastline_bytes
 
 
@@ -458,7 +471,13 @@ def get_ocean_meta():
 
 
 @app.get("/api/ocean_3d")
-def get_ocean_3d(type: str = "temp", time_idx: int = 0, depth_idx: int = 0, stride: int = POINT_STRIDE_X):
+def get_ocean_3d(
+    type: str = "temp",
+    time_idx: int = 0,
+    depth_idx: int = 0,
+    stride: int = POINT_STRIDE_X,
+    depth_max: float = MAX_DISPLAY_DEPTH_M,
+):
     try:
         dataset = get_dataset()
         time_len = int(dataset.sizes.get("time", 1))
@@ -467,29 +486,40 @@ def get_ocean_3d(type: str = "temp", time_idx: int = 0, depth_idx: int = 0, stri
         safe_depth = _clip_index(depth_idx, depth_len)
 
         safe_stride = max(1, int(stride))
+        safe_depth_max = max(2.0, min(float(depth_max), MAX_DISPLAY_DEPTH_M))
 
         if type == "temp":
             data_3d = dataset.water_temp.isel(time=safe_time).values
-            payload = _build_stack_payload(
-                data_3d,
-                dataset.lon.values,
-                dataset.lat.values,
-                dataset.depth.values,
-                stride_x=1,
-                stride_y=1,
-                block_size=safe_stride,
-            )
+            cache_key = ("ocean_3d", "temp", safe_time, safe_stride, safe_depth_max)
+            payload = _cache_get(cache_key)
+            if payload is None:
+                payload = _build_stack_payload(
+                    data_3d,
+                    dataset.lon.values,
+                    dataset.lat.values,
+                    dataset.depth.values,
+                    stride_x=1,
+                    stride_y=1,
+                    block_size=safe_stride,
+                    max_depth_m=safe_depth_max,
+                )
+                _cache_put(cache_key, payload)
         elif type == "salt":
             data_3d = dataset.salinity.isel(time=safe_time).values
-            payload = _build_stack_payload(
-                data_3d,
-                dataset.lon.values,
-                dataset.lat.values,
-                dataset.depth.values,
-                stride_x=1,
-                stride_y=1,
-                block_size=safe_stride,
-            )
+            cache_key = ("ocean_3d", "salt", safe_time, safe_stride, safe_depth_max)
+            payload = _cache_get(cache_key)
+            if payload is None:
+                payload = _build_stack_payload(
+                    data_3d,
+                    dataset.lon.values,
+                    dataset.lat.values,
+                    dataset.depth.values,
+                    stride_x=1,
+                    stride_y=1,
+                    block_size=safe_stride,
+                    max_depth_m=safe_depth_max,
+                )
+                _cache_put(cache_key, payload)
         elif type == "current":
             layer_data, safe_time, safe_depth = _get_slice(dataset, type, safe_time, safe_depth)
             payload = _build_point_payload(
@@ -498,12 +528,6 @@ def get_ocean_3d(type: str = "temp", time_idx: int = 0, depth_idx: int = 0, stri
         else:
             return Response(content=f"Unsupported type: {type}", status_code=400)
 
-        point_bytes = (7 * 4) if type in ("temp", "salt") else (4 * 4)
-        payload_points = max(0, (len(payload) - 8) // point_bytes)
-        print(
-            f"[Ocean3D] type={type} time={safe_time} depth={safe_depth} "
-            f"stride={safe_stride} payload_points={payload_points} bytes={len(payload)}"
-        )
         return Response(content=payload, media_type="application/octet-stream")
     except ValueError as e:
         return Response(content=str(e), status_code=400)
@@ -516,6 +540,7 @@ def get_ocean_3d_roi(
     type: str = "temp",
     time_idx: int = 0,
     stride: int = POINT_STRIDE_X,
+    depth_max: float = MAX_DISPLAY_DEPTH_M,
     lon_min: Optional[float] = None,
     lon_max: Optional[float] = None,
     lat_min: Optional[float] = None,
@@ -526,6 +551,7 @@ def get_ocean_3d_roi(
         time_len = int(dataset.sizes.get("time", 1))
         safe_time = _clip_index(time_idx, time_len)
         safe_stride = max(1, int(stride))
+        safe_depth_max = max(2.0, min(float(depth_max), MAX_DISPLAY_DEPTH_M))
 
         if type == "temp":
             data_3d = dataset.water_temp.isel(time=safe_time).values
@@ -534,24 +560,30 @@ def get_ocean_3d_roi(
         else:
             return Response(content=f"Unsupported type for ROI: {type}", status_code=400)
 
-        payload = _build_stack_payload(
-            data_3d,
-            dataset.lon.values,
-            dataset.lat.values,
-            dataset.depth.values,
-            lon_min=lon_min,
-            lon_max=lon_max,
-            lat_min=lat_min,
-            lat_max=lat_max,
-            stride_x=1,
-            stride_y=1,
-            block_size=safe_stride,
+        cache_key = (
+            "ocean_3d_roi", type, safe_time, safe_stride, safe_depth_max,
+            None if lon_min is None else round(float(lon_min), 4),
+            None if lon_max is None else round(float(lon_max), 4),
+            None if lat_min is None else round(float(lat_min), 4),
+            None if lat_max is None else round(float(lat_max), 4),
         )
-        payload_points = max(0, (len(payload) - 8) // (7 * 4))
-        print(
-            f"[Ocean3D-ROI] type={type} time={safe_time} stride={safe_stride} "
-            f"lon=({lon_min},{lon_max}) lat=({lat_min},{lat_max}) points={payload_points}"
-        )
+        payload = _cache_get(cache_key)
+        if payload is None:
+            payload = _build_stack_payload(
+                data_3d,
+                dataset.lon.values,
+                dataset.lat.values,
+                dataset.depth.values,
+                lon_min=lon_min,
+                lon_max=lon_max,
+                lat_min=lat_min,
+                lat_max=lat_max,
+                stride_x=1,
+                stride_y=1,
+                block_size=safe_stride,
+                max_depth_m=safe_depth_max,
+            )
+            _cache_put(cache_key, payload)
         return Response(content=payload, media_type="application/octet-stream")
     except Exception as e:
         return Response(content=f"ocean_3d_roi: {e}", status_code=500)
